@@ -1,0 +1,12 @@
+.vscode/*
+mysql_data/*
+*.log
+*.tmp
+.DS_Store
+clickhouse_data/*
+*.log
+*.tmp
+.idea/*
+*.iml
+out/
+build/
