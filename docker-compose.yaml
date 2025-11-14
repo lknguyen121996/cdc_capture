@@ -1,0 +1,82 @@
+version: '3.1'
+services:
+  # mysql which has binlog enabled
+  mysql:
+    image: mysql:8.0
+    container_name: mysql_cdc
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: testdb
+    command: --server-id=1 --log-bin=mysql-bin --binlog-format=ROW
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mysql_data:/var/lib/mysql
+      
+    
+  # kafka
+  zookeeper:
+    image: zookeeper:3.9.4
+    container_name: zookeeper_cdc
+    ports:
+      - "2181:2181"
+  kafka:
+    image: apache/kafka:4.1.1
+    container_name: kafka_cdc
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      CLUSTER_ID: "kafka-cluster-1"
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka_cdc:9092
+      KAFKA_LISTENERS: CONTROLLER://:9093,PLAINTEXT://:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka_cdc:9093
+    depends_on:
+      - zookeeper
+      - mysql
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # debezium connector
+  connect:
+    image: debezium/connect:2.7.3.Final
+    container_name: connect_cdc
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka_cdc:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: my_connect_configs
+      OFFSET_STORAGE_TOPIC: my_connect_offsets
+      STATUS_STORAGE_TOPIC: my_connect_statuses
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+    depends_on:
+      kafka:
+        condition: service_started
+      mysql:
+        condition: service_started
+
+  # clickhouse
+  clickhouse:
+    image: yandex/clickhouse-server:latest
+    container_name: clickhouse_cdc
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./clickhouse_data:/var/lib/clickhouse
+
+  # main application to setup cdc
+networks:
+  default:
+    driver: bridge
